@@ -4,16 +4,81 @@
 #   build/Vigie-<version>.zip  l'app seule
 # La mise en page de la fenêtre passe par le Finder : macOS peut demander d'autoriser le terminal à le piloter.
 #
-# Notarisation (supprime l'avertissement « Apple n'a pas pu confirmer… ») : si le profil du trousseau
-# « vigie-notary » existe, le DMG est signé, envoyé à Apple, puis le ticket est agrafé au DMG et à l'app.
-# Créer le profil une fois :
-#   xcrun notarytool store-credentials vigie-notary --apple-id <e-mail Apple> --team-id 9M6324GD46
-# (mot de passe : un « mot de passe pour app » créé sur account.apple.com). NOTARY_PROFILE=… pour un autre nom.
+# Notarisation (supprime l'avertissement « Apple n'a pas pu confirmer… »), avant la création du DMG :
+#   - avec le profil du trousseau « vigie-notary » s'il existe (notarytool : l'app puis le DMG sont notarisés) ;
+#     le créer une fois : xcrun notarytool store-credentials vigie-notary --apple-id <e-mail> --team-id 9M6324GD46
+#   - sinon avec le compte connecté dans Xcode (archive .xcarchive envoyée par xcodebuild ; l'app est notarisée).
+# NOTARIZE=0 pour s'en passer.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ./scripts/build.sh
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
+BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" Resources/Info.plist)
+ID=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" Resources/Info.plist)
+PROFILE="${NOTARY_PROFILE:-vigie-notary}"
+IDENTITY=$(codesign -dvv build/Vigie.app 2>&1 | awk -F= '/^Authority=Developer ID Application/ {print $2}')
+TEAM=$(codesign -dv build/Vigie.app 2>&1 | awk -F= '/^TeamIdentifier=/ {print $2}')
+HAS_PROFILE=0
+xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 && HAS_PROFILE=1
+
+if [[ -n "$IDENTITY" && "${NOTARIZE:-1}" != "0" ]]; then
+  echo "… notarisation de l'app par Apple"
+  if [[ $HAS_PROFILE == 1 ]]; then
+    ditto -c -k --keepParent build/Vigie.app build/notarize.zip
+    xcrun notarytool submit build/notarize.zip --keychain-profile "$PROFILE" --wait
+    rm -f build/notarize.zip
+  else
+    # Compte Xcode : une archive minimale, exportée vers le service de notarisation.
+    ARCHIVE=build/Vigie.xcarchive
+    rm -rf "$ARCHIVE" build/notarized
+    mkdir -p "$ARCHIVE/Products/Applications"
+    ditto build/Vigie.app "$ARCHIVE/Products/Applications/Vigie.app"
+    cat > "$ARCHIVE/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>ApplicationProperties</key><dict>
+    <key>ApplicationPath</key><string>Applications/Vigie.app</string>
+    <key>Architectures</key><array><string>arm64</string></array>
+    <key>CFBundleIdentifier</key><string>$ID</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD</string>
+    <key>SigningIdentity</key><string>$IDENTITY</string>
+    <key>Team</key><string>$TEAM</string>
+  </dict>
+  <key>ArchiveVersion</key><integer>2</integer>
+  <key>CreationDate</key><date>$(date -u +%Y-%m-%dT%H:%M:%SZ)</date>
+  <key>Name</key><string>Vigie</string>
+  <key>SchemeName</key><string>Vigie</string>
+</dict></plist>
+PLIST
+    cat > build/export-options.plist <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>method</key><string>developer-id</string>
+  <key>destination</key><string>upload</string>
+  <key>teamID</key><string>$TEAM</string>
+  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>Developer ID Application</string>
+</dict></plist>
+PLIST
+    xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath build/notarize-upload \
+               -exportOptionsPlist build/export-options.plist 2>&1 | grep -E "Uploaded|SUCCEEDED|FAILED|error"
+    # Attente de la validation (en général moins d'une minute).
+    for _ in $(seq 1 60); do
+      xcodebuild -exportNotarizedApp -archivePath "$ARCHIVE" -exportPath build/notarized >/dev/null 2>&1 && break
+      sleep 10
+    done
+    [[ -d build/notarized/Vigie.app ]] || { echo "✘ notarisation non terminée"; exit 1; }
+    rm -rf build/Vigie.app && ditto build/notarized/Vigie.app build/Vigie.app
+    rm -rf "$ARCHIVE" build/notarized build/notarize-upload build/export-options.plist
+  fi
+  xcrun stapler staple -q build/Vigie.app
+  spctl -a -t exec build/Vigie.app && echo "✔ app notarisée, acceptée par Gatekeeper"
+fi
+
 NAME="Vigie"
 DMG="build/$NAME-$VERSION.dmg"
 WORK=build/dmg
@@ -73,18 +138,11 @@ hdiutil detach "$DEVICE" -quiet
 hdiutil convert "$WORK/rw.dmg" -format ULFO -o "$DMG" -quiet
 rm -rf "$WORK"
 
-PROFILE="${NOTARY_PROFILE:-vigie-notary}"
-IDENTITY=$(codesign -dv build/Vigie.app 2>&1 | awk -F= '/^Authority=Developer ID Application/ {print $2; exit}')
 if [[ -n "$IDENTITY" ]]; then
   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
-  if xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
-    echo "… notarisation par Apple (quelques minutes)"
+  if [[ $HAS_PROFILE == 1 && "${NOTARIZE:-1}" != "0" ]]; then
     xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
     xcrun stapler staple -q "$DMG"
-    xcrun stapler staple -q build/Vigie.app     # le ticket couvre aussi l'app contenue dans le DMG
-    spctl -a -t open --context context:primary-signature "$DMG" && echo "✔ notarisé et accepté par Gatekeeper"
-  else
-    echo "⚠ pas de profil « $PROFILE » : DMG signé mais non notarisé (voir l'en-tête du script)"
   fi
 fi
 

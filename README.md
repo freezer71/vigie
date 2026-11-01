@@ -19,8 +19,7 @@ Nécessite macOS 14 ou plus récent, sur un Mac Apple Silicon (M1 ou plus récen
 
 1. Téléchargez **`Vigie-x.y.dmg`** dans la dernière version, puis ouvrez-le.
 2. Dans la fenêtre qui s'affiche, glissez **Vigie** sur le dossier **Applications**.
-3. À la première ouverture, macOS bloque l'app parce qu'elle n'est pas signée avec un compte développeur Apple. Allez dans **Réglages Système → Confidentialité et sécurité**, puis cliquez sur **Ouvrir quand même**.
-   En ligne de commande : `xattr -dr com.apple.quarantine /Applications/Vigie.app`
+3. Ouvrez Vigie depuis le dossier Applications. Elle est signée et notarisée par Apple : elle s'ouvre sans avertissement.
 
 L'app seule existe aussi en `.zip`, dans la même release.
 
