@@ -15,10 +15,12 @@ Moniteur système pour la barre des menus de macOS, écrit entièrement en Swift
 
 Nécessite macOS 14 ou plus récent, sur un Mac Apple Silicon (M1 ou plus récent).
 
-1. Téléchargez le fichier `Vigie-x.y.zip` de la dernière version, puis décompressez-le.
-2. Glissez **Vigie.app** dans le dossier Applications.
+1. Téléchargez **`Vigie-x.y.dmg`** dans la dernière version, puis ouvrez-le.
+2. Dans la fenêtre qui s'affiche, glissez **Vigie** sur le dossier **Applications**.
 3. À la première ouverture, macOS bloque l'app parce qu'elle n'est pas signée avec un compte développeur Apple. Allez dans **Réglages Système → Confidentialité et sécurité**, puis cliquez sur **Ouvrir quand même**.
    En ligne de commande : `xattr -dr com.apple.quarantine /Applications/Vigie.app`
+
+L'app seule existe aussi en `.zip`, dans la même release.
 
 ## Compiler soi-même
 
@@ -27,6 +29,7 @@ Il faut les outils de ligne de commande Xcode (Swift 5.10 ou plus récent).
 ```sh
 ./scripts/build.sh            # produit build/Vigie.app
 ./scripts/build.sh --install  # l'installe dans /Applications et la lance
+./scripts/package.sh          # produit le DMG et le zip de distribution dans build/
 ```
 
 Clic : le panneau. Clic droit : le menu (Moniteur d'activité, Quitter).

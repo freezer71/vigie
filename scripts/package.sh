@@ -1,50 +1,72 @@
 #!/bin/bash
 # Produit les fichiers de distribution de Vigie :
+#   build/Vigie-<version>.dmg  image disque : fenêtre illustrée, glisser Vigie dans Applications
 #   build/Vigie-<version>.zip  l'app seule
-#   build/Vigie-<version>.pkg  l'installateur macOS (installe dans /Applications puis lance Vigie)
+# La mise en page de la fenêtre passe par le Finder : macOS peut demander d'autoriser le terminal à le piloter.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ./scripts/build.sh
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
-ID=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" Resources/Info.plist)
-WORK=build/pkg
-rm -rf "$WORK" "build/Vigie-$VERSION.zip" "build/Vigie-$VERSION.pkg"
-mkdir -p "$WORK/root/Applications" "$WORK/resources"
+NAME="Vigie"
+DMG="build/$NAME-$VERSION.dmg"
+WORK=build/dmg
+rm -rf "$WORK" "$DMG" "build/$NAME-$VERSION.zip"
+mkdir -p "$WORK/stage/.background"
 
-# Zip de l'app seule.
-ditto -c -k --sequesterRsrc --keepParent build/Vigie.app "build/Vigie-$VERSION.zip"
+ditto -c -k --sequesterRsrc --keepParent build/Vigie.app "build/$NAME-$VERSION.zip"
 
-# Paquet du composant : l'app, installée à /Applications, jamais « déplacée » vers une autre copie.
-ditto build/Vigie.app "$WORK/root/Applications/Vigie.app"
-pkgbuild --analyze --root "$WORK/root" "$WORK/component.plist" >/dev/null
-/usr/libexec/PlistBuddy -c "Add :0:BundleIsRelocatable bool false" "$WORK/component.plist"
-pkgbuild --root "$WORK/root" --component-plist "$WORK/component.plist" \
-         --identifier "$ID" --version "$VERSION" --install-location / \
-         --scripts installer/scripts "$WORK/Vigie-component.pkg" >/dev/null
+# Fond 1× et 2× réunis dans un TIFF : le Finder choisit selon l'écran.
+swift scripts/make-dmg-background.swift "$WORK" >/dev/null
+tiffutil -cathidpicheck "$WORK/background.png" "$WORK/background@2x.png" -out "$WORK/stage/.background/background.tiff" 2>/dev/null
+ditto build/Vigie.app "$WORK/stage/Vigie.app"
+ln -s /Applications "$WORK/stage/Applications"
 
-# Assistant d'installation : accueil, fond avec le logo, vérification du Mac, conclusion.
-cp installer/resources/*.html "$WORK/resources/"
-cp design/logo/vigie-icon.png "$WORK/resources/background.png"
-cat > "$WORK/distribution.xml" <<XML
-<?xml version="1.0" encoding="utf-8"?>
-<installer-gui-script minSpecVersion="2">
-    <title>Vigie $VERSION</title>
-    <welcome file="welcome.html" mime-type="text/html"/>
-    <conclusion file="conclusion.html" mime-type="text/html"/>
-    <background file="background.png" alignment="bottomleft" scaling="proportional"/>
-    <background-darkAqua file="background.png" alignment="bottomleft" scaling="proportional"/>
-    <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
-    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
-    <allowed-os-versions><os-version min="14.0"/></allowed-os-versions>
-    <choices-outline><line choice="default"><line choice="$ID"/></line></choices-outline>
-    <choice id="default"/>
-    <choice id="$ID" visible="false"><pkg-ref id="$ID"/></choice>
-    <pkg-ref id="$ID" version="$VERSION" onConclusion="none">Vigie-component.pkg</pkg-ref>
-</installer-gui-script>
-XML
-productbuild --distribution "$WORK/distribution.xml" --resources "$WORK/resources" \
-             --package-path "$WORK" "build/Vigie-$VERSION.pkg" >/dev/null
+# Image modifiable, mise en page par le Finder, puis compression.
+hdiutil detach "/Volumes/$NAME" -quiet 2>/dev/null || true
+hdiutil create -srcfolder "$WORK/stage" -volname "$NAME" -fs HFS+ -format UDRW -ov "$WORK/rw.dmg" -quiet
+DEVICE=$(hdiutil attach -readwrite -noverify -noautoopen "$WORK/rw.dmg" | awk '/Apple_HFS/ {print $1}')
+MOUNT="/Volumes/$NAME"
+SetFile -a V "$MOUNT/.background"
+
+# Positions identiques à celles de scripts/make-dmg-background.swift (appCenter, applicationsCenter).
+osascript <<APPLESCRIPT
+tell application "Finder"
+    tell disk "$NAME"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {200, 120, 840, 548}
+        set opts to the icon view options of container window
+        set arrangement of opts to not arranged
+        set icon size of opts to 112
+        set text size of opts to 13
+        set background picture of opts to file ".background:background.tiff"
+        set position of item "Vigie.app" of container window to {170, 190}
+        set position of item "Applications" of container window to {470, 190}
+        update without registering applications
+        delay 1
+        close
+        open
+        -- La barre d'état ne disparaît que réglée sur une fenêtre déjà ouverte.
+        set statusbar visible of container window to false
+        set toolbar visible of container window to false
+        set the bounds of container window to {200, 120, 840, 548}
+        delay 1
+        close
+    end tell
+end tell
+APPLESCRIPT
+
+# Icône du volume, ajoutée après le passage du Finder (qui la supprime sinon).
+cp Resources/AppIcon.icns "$MOUNT/.VolumeIcon.icns"
+SetFile -c icnC -a V "$MOUNT/.VolumeIcon.icns"
+SetFile -a C "$MOUNT"
+chmod -Rf go-w "$MOUNT" || true
+sync
+hdiutil detach "$DEVICE" -quiet
+hdiutil convert "$WORK/rw.dmg" -format ULFO -o "$DMG" -quiet
 rm -rf "$WORK"
-echo "✔ build/Vigie-$VERSION.zip"
-echo "✔ build/Vigie-$VERSION.pkg"
+echo "✔ $DMG"
+echo "✔ build/$NAME-$VERSION.zip"
