@@ -1,0 +1,4 @@
+#!/bin/bash
+# Ferme Vigie si elle tourne, pour remplacer l'app proprement.
+pkill -x Vigie 2>/dev/null || true
+exit 0

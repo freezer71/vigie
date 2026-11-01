@@ -1,0 +1,8 @@
+#!/bin/bash
+# Lance Vigie pour l'utilisateur connecté (l'installateur s'exécute en root).
+user=$(stat -f %Su /dev/console)
+uid=$(id -u "$user" 2>/dev/null)
+if [[ -n "$uid" && "$user" != "root" ]]; then
+  launchctl asuser "$uid" sudo -u "$user" open /Applications/Vigie.app || true
+fi
+exit 0
