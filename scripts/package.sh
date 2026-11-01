@@ -3,6 +3,12 @@
 #   build/Vigie-<version>.dmg  image disque : fenêtre illustrée, glisser Vigie dans Applications
 #   build/Vigie-<version>.zip  l'app seule
 # La mise en page de la fenêtre passe par le Finder : macOS peut demander d'autoriser le terminal à le piloter.
+#
+# Notarisation (supprime l'avertissement « Apple n'a pas pu confirmer… ») : si le profil du trousseau
+# « vigie-notary » existe, le DMG est signé, envoyé à Apple, puis le ticket est agrafé au DMG et à l'app.
+# Créer le profil une fois :
+#   xcrun notarytool store-credentials vigie-notary --apple-id <e-mail Apple> --team-id 9M6324GD46
+# (mot de passe : un « mot de passe pour app » créé sur account.apple.com). NOTARY_PROFILE=… pour un autre nom.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,8 +19,6 @@ DMG="build/$NAME-$VERSION.dmg"
 WORK=build/dmg
 rm -rf "$WORK" "$DMG" "build/$NAME-$VERSION.zip"
 mkdir -p "$WORK/stage/.background"
-
-ditto -c -k --sequesterRsrc --keepParent build/Vigie.app "build/$NAME-$VERSION.zip"
 
 # Fond 1× et 2× réunis dans un TIFF : le Finder choisit selon l'écran.
 swift scripts/make-dmg-background.swift "$WORK" >/dev/null
@@ -68,5 +72,23 @@ sync
 hdiutil detach "$DEVICE" -quiet
 hdiutil convert "$WORK/rw.dmg" -format ULFO -o "$DMG" -quiet
 rm -rf "$WORK"
+
+PROFILE="${NOTARY_PROFILE:-vigie-notary}"
+IDENTITY=$(codesign -dv build/Vigie.app 2>&1 | awk -F= '/^Authority=Developer ID Application/ {print $2; exit}')
+if [[ -n "$IDENTITY" ]]; then
+  codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+  if xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
+    echo "… notarisation par Apple (quelques minutes)"
+    xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
+    xcrun stapler staple -q "$DMG"
+    xcrun stapler staple -q build/Vigie.app     # le ticket couvre aussi l'app contenue dans le DMG
+    spctl -a -t open --context context:primary-signature "$DMG" && echo "✔ notarisé et accepté par Gatekeeper"
+  else
+    echo "⚠ pas de profil « $PROFILE » : DMG signé mais non notarisé (voir l'en-tête du script)"
+  fi
+fi
+
+# Zip de l'app seule (après l'agrafage, pour qu'il contienne le ticket).
+ditto -c -k --sequesterRsrc --keepParent build/Vigie.app "build/$NAME-$VERSION.zip"
 echo "✔ $DMG"
 echo "✔ build/$NAME-$VERSION.zip"
