@@ -33,16 +33,19 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         scheduleRender()
 
         // Débogage : `open Vigie.app --args -debugOpen overview|processes|settings` ouvre le panneau au lancement.
+        // `-debugOpenDelay 190` : attend N secondes (historiques remplis, pour les captures d'écran).
         if UserDefaults.standard.string(forKey: "debugOpen") != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.togglePopover() }
+            let delay = UserDefaults.standard.double(forKey: "debugOpenDelay")
+            let openAt = delay > 0 ? delay : 2.5
+            DispatchQueue.main.asyncAfter(deadline: .now() + openAt) { [weak self] in self?.togglePopover() }
             // `-debugCloseAfter 10` : referme le panneau après N secondes (mesures de consommation).
             let closeAfter = UserDefaults.standard.double(forKey: "debugCloseAfter")
             if closeAfter > 0 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5 + closeAfter) { [weak self] in self?.popover.performClose(nil) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + openAt + closeAfter) { [weak self] in self?.popover.performClose(nil) }
                 // `-debugReopenAfter 5` : rouvre N secondes plus tard (coût d'une réouverture).
                 let reopenAfter = UserDefaults.standard.double(forKey: "debugReopenAfter")
                 if reopenAfter > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5 + closeAfter + reopenAfter) { [weak self] in self?.togglePopover() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + openAt + closeAfter + reopenAfter) { [weak self] in self?.togglePopover() }
                 }
             }
         }

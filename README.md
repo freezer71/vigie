@@ -9,6 +9,8 @@ Moniteur système pour la barre des menus de macOS, écrit entièrement en Swift
 - **Processus :** regroupés par application, avec leur icône. Les outils de développement sont reconnus : « Serveur Next.js » avec le dossier du projet, Vite, Playwright, Claude Code…
 - **Léger :** moins de 1 % de CPU panneau fermé, et rien du tout pendant la veille.
 
+<p align="center"><img src="design/media/hero.png" alt="Vigie : la barre des menus, l'onglet Aperçu et l'onglet Processus"></p>
+
 ## Télécharger
 
 **[⬇ Télécharger Vigie (dernière version)](https://github.com/freezer71/vigie/releases/latest)**
@@ -34,6 +36,8 @@ Il faut les outils de ligne de commande Xcode (Swift 5.10 ou plus récent).
 
 Clic : le panneau. Clic droit : le menu (Moniteur d'activité, Quitter).
 
-## Logo
+## Logo et visuels
 
 Le logo est dessiné en SVG par `scripts/make-logo.py` (il faut `brew install librsvg`). Le script produit `design/logo/` (couleur, monochrome, symbole noir et blanc, en SVG, PDF et PNG) et l'icône de l'app `Resources/AppIcon.icns`.
+
+Les visuels de présentation sont dans `design/media/` : `hero.png` pour le README et `social-preview.png` (1280 × 640) pour la miniature des liens. Ils sont composés par `scripts/make-media.swift` à partir des vraies captures de `design/screenshots/`. Pour refaire une capture avec des graphiques bien remplis, lancez `open build/Vigie.app --args -debugOpen overview -debugOpenDelay 190` : le panneau s'ouvre après trois minutes d'historique.
